@@ -1,13 +1,6 @@
 import os
 import math
 import re
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.lib.units import cm
-from PIL import Image
-from svglib.svglib import svg2rlg
-from reportlab.graphics import renderPDF
-from PyPDF2 import PdfReader
 
 # === CENIKI ===
 cenik_gravura = [
@@ -285,17 +278,20 @@ def interpoliraj_ceno(metri, cenik):
     """Interpolate the cost based on the length in meters, including <1m."""
     tocke = sorted(cenik.keys())
     
+    # Handle lengths less than or equal to 0
     if metri <= 0:
         return 0, 0
     
+    # Handle lengths between 0 and 1 meter
     if metri < tocke[0]:
-        d1, p1 = 0, 0
-        d2, p2 = cenik[tocke[0]]
+        d1, p1 = 0, 0  # Price at 0 meters
+        d2, p2 = cenik[tocke[0]]  # Price at 1 meter
         faktor = metri / tocke[0]
         dobavna = d1 + (d2 - d1) * faktor
         prodajna = p1 + (p2 - p1) * faktor
         return round(dobavna, 2), round(prodajna, 2)
     
+    # Handle lengths between defined points
     for i in range(len(tocke) - 1):
         nizji = tocke[i]
         visji = tocke[i + 1]
@@ -307,10 +303,11 @@ def interpoliraj_ceno(metri, cenik):
             prodajna = p1 + (p2 - p1) * faktor
             return round(dobavna, 2), round(prodajna, 2)
     
+    # Handle lengths beyond the last point
     return cenik[tocke[-1]]
 
 def save_to_file(podjetje, data, kolicina_or_metri, izbira, mapa="izracuni_dtf"):
-    """Save calculation results to a text file."""
+    """Save calculation results to a file."""
     os.makedirs(mapa, exist_ok=True)
     sanitized_podjetje = sanitize_filename(podjetje)
     sanitized_izbira = sanitize_filename(izbira)
@@ -325,95 +322,6 @@ def save_to_file(podjetje, data, kolicina_or_metri, izbira, mapa="izracuni_dtf")
         print(f"\n✅ Shranjeno v: {pot}")
     except OSError as e:
         print(f"❌ Napaka pri shranjevanju datoteke: {e}")
-
-def create_pdf_layout(podjetje, artikel_ime, logotipi, mapa="izracuni_dtf"):
-    """Create a PDF showing the layout of logos on a 44cm x 100cm sheet."""
-    os.makedirs(mapa, exist_ok=True)
-    sanitized_podjetje = sanitize_filename(podjetje)
-    sanitized_izbira = sanitize_filename(artikel_ime if artikel_ime != "ne potrebujem ga" else "dtf")
-    pdf_path = os.path.join(mapa, f"{sanitized_podjetje}_{sanitized_izbira}_layout.pdf")
-    
-    PAGE_WIDTH = 44 * cm
-    PAGE_HEIGHT = 100 * cm
-    c = canvas.Canvas(pdf_path, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
-    
-    y_position = PAGE_HEIGHT - 1 * cm
-    
-    for logo in logotipi:
-        file_path, sirina, visina, kolicina, rotirano, log_na_vrstico, vrstic = logo
-        logo_width = visina * cm if rotirano else sirina * cm
-        logo_height = sirina * cm if rotirano else visina * cm
-        
-        # Preveri format datoteke
-        if file_path.lower().endswith('.pdf'):
-            try:
-                pdf_reader = PdfReader(file_path)
-                if len(pdf_reader.pages) == 0:
-                    raise ValueError("PDF datoteka je prazna.")
-                page = pdf_reader.pages[0]  # Prva stran PDF-ja
-                # Pretvori PDF stran v sliko, saj neposredno risanje ni podprto
-                from reportlab.pdfgen import pdfimage
-                img = pdfimage.PDFImage(file_path, 0)  # 0 je indeks prve strani
-            except Exception as e:
-                print(f"⚠️ Napaka pri obdelavi PDF datoteke {file_path}: {e}")
-                c.drawString(0, y_position - logo_height, f"[Napaka: PDF {os.path.basename(file_path)} ni naložen]")
-                continue
-        elif file_path.lower().endswith('.svg'):
-            try:
-                drawing = svg2rlg(file_path)
-                if not drawing:
-                    raise ValueError("SVG datoteka ni pravilno formatirana.")
-            except Exception as e:
-                print(f"⚠️ Napaka pri vstavljanju SVG {file_path}: {e}")
-                c.drawString(0, y_position - logo_height, f"[Napaka: SVG {os.path.basename(file_path)} ni naložen]")
-                continue
-        else:  # PNG/JPG
-            try:
-                img = Image.open(file_path)
-            except Exception as e:
-                print(f"⚠️ Napaka pri vstavljanju slike {file_path}: {e}")
-                c.drawString(0, y_position - logo_height, f"[Napaka: Slika {os.path.basename(file_path)} ni naložena]")
-                continue
-
-        for vrstica in range(vrstic):
-            for i in range(log_na_vrstico):
-                if kolicina <= 0:
-                    break
-                x_position = i * logo_width
-                if x_position + logo_width > PAGE_WIDTH or y_position - logo_height < 0:
-                    break
-                
-                try:
-                    if file_path.lower().endswith('.pdf'):
-                        # Uporabi PDFImage za risanje
-                        c.drawImage(img, x_position, y_position - logo_height, width=logo_width, height=logo_height)
-                    elif file_path.lower().endswith('.svg'):
-                        if rotirano:
-                            c.saveState()
-                            c.translate(x_position + logo_width, y_position)
-                            c.rotate(-90)
-                            renderPDF.draw(drawing, c, 0, -logo_height, scale=logo_width/drawing.width)
-                            c.restoreState()
-                        else:
-                            renderPDF.draw(drawing, c, x_position, y_position - logo_height, width=logo_width, height=logo_height)
-                    else:
-                        if rotirano:
-                            img_rot = img.rotate(90, expand=True)
-                            c.drawImage(file_path, x_position, y_position - logo_height, width=logo_width, height=logo_height)
-                        else:
-                            c.drawImage(file_path, x_position, y_position - logo_height, width=logo_width, height=logo_height)
-                except Exception as e:
-                    print(f"⚠️ Napaka pri risanju logotipa {file_path}: {e}")
-                    c.drawString(x_position, y_position - logo_height, f"[Napaka: Logotip {os.path.basename(file_path)} ni naložen]")
-                
-                kolicina -= 1
-            y_position -= logo_height
-            if y_position < logo_height:
-                c.showPage()
-                y_position = PAGE_HEIGHT - 1 * cm
-    
-    c.save()
-    print(f"\n✅ PDF razporeditev shranjena v: {pdf_path}")
 
 def izracun_promocije():
     """Calculate costs for promotional materials."""
@@ -471,7 +379,7 @@ def izracun_promocije():
         print(f"❌ Napaka: {e}")
 
 def izracun_dtf():
-    """Calculate costs for DTF printing with clothing articles and create PDF layout."""
+    """Calculate costs for DTF printing with clothing articles only."""
     try:
         podjetje = input("Vpiši ime podjetja: ").strip()
         if not podjetje:
@@ -480,18 +388,21 @@ def izracun_dtf():
 
         izbira = input("Vpiši ime oblačilnega artikla (npr. backfire, ali 'ne potrebujem ga' za lastne izdelke): ").lower().strip()
         
+        # Check if user wants to skip article costs
         if izbira == "ne potrebujem ga":
             artikel_dobava = 0
             artikel_prodaja = 0
             artikel_ime = "ne potrebujem ga"
             cenik_izbira = None
         else:
+            # Handle T-shirt selection only
             if izbira not in [razpon["ime"].lower() for razpon in cenik_majice]:
                 print("❌ Napačen izdelek. Vnesi veljaven oblačilni artikel (npr. backfire) ali 'ne potrebujem ga'.")
                 return
             cenik_izbira = cenik_majice
             artikel_ime = izbira
 
+        # Input total quantity
         try:
             skupna_kolicina = int(input("Vpiši skupno količino izdelkov: ").strip())
             if skupna_kolicina <= 0:
@@ -500,6 +411,7 @@ def izracun_dtf():
             print("❌ Napačen vnos količine. Vnesi celo število.")
             return
 
+        # Calculate article costs if an article is selected
         if cenik_izbira:
             razpon = poisci_razpon(cenik_izbira, skupna_kolicina, artikel_ime)
             if razpon is None:
@@ -511,6 +423,7 @@ def izracun_dtf():
             artikel_dobava = 0
             artikel_prodaja = 0
 
+        # Input logo details
         st_logotipov = input("Koliko različnih vrst logotipov boš vnesel? ").strip()
         try:
             st_logotipov = int(st_logotipov)
@@ -522,24 +435,20 @@ def izracun_dtf():
 
         skupna_povrsina_cm2 = 0
         podrobnosti = []
-        logotipi = []
 
         for i in range(1, st_logotipov + 1):
             print(f"\nVnos za logotip #{i}:")
             try:
-                file_path = input("  Pot do datoteke logotipa (PDF, PNG, JPG, SVG): ").strip()
-                if not os.path.isfile(file_path) or not file_path.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.svg')):
-                    raise ValueError("Neveljavna datoteka ali format (potrebno PDF, PNG, JPG ali SVG).")
-                
                 sirina = float(input("  Širina logotipa (v cm): "))
                 visina = float(input("  Višina logotipa (v cm): "))
                 kolicina = int(input("  Količina tega logotipa: "))
                 if sirina <= 0 or visina <= 0 or kolicina <= 0:
                     raise ValueError("Vrednosti morajo biti pozitivne.")
-            except ValueError as e:
-                print(f"❌ Napačen vnos: {e}")
+            except ValueError:
+                print("❌ Napačen vnos. Vnesi veljavne številske vrednosti.")
                 return
 
+            # Calculate layout with and without rotation
             log_na_vrstico = math.floor(44 / sirina) if sirina > 0 else 0
             vrstic = math.ceil(kolicina / log_na_vrstico) if log_na_vrstico > 0 else 1
             visina_total = vrstic * visina
@@ -548,8 +457,7 @@ def izracun_dtf():
             rot_vrstic = math.ceil(kolicina / rot_log_na_vrstico) if rot_log_na_vrstico > 0 else 1
             rot_visina_total = rot_vrstic * sirina
 
-            rotirano = rot_visina_total < visina_total and rot_log_na_vrstico > 0
-            if rotirano:
+            if rot_visina_total < visina_total and rot_log_na_vrstico > 0:
                 vrstica_opis = (
                     f"Logotip #{i}: {kolicina} × {visina}x{sirina} cm (ROTIRANO) → "
                     f"{rot_log_na_vrstico} na vrstico, {rot_vrstic} vrstic = {rot_visina_total:.2f} cm"
@@ -561,19 +469,21 @@ def izracun_dtf():
                 )
 
             podrobnosti.append(vrstica_opis)
-            logotipi.append((file_path, sirina, visina, kolicina, rotirano, rot_log_na_vrstico if rotirano else log_na_vrstico, rot_vrstic if rotirano else vrstic))
             povrsina = sirina * visina * kolicina
             skupna_povrsina_cm2 += povrsina
 
+        # Calculate DTF costs
         povrsinska_dolzina_m = skupna_povrsina_cm2 / (44 * 100)
         povrsinska_z_rezervo = round(povrsinska_dolzina_m + 0.2, 2)
         dtf_dobava, dtf_prodaja = interpoliraj_ceno(povrsinska_z_rezervo, cenik_dtf)
 
+        # Calculate total costs and profit
         skupna_dobava = round(dtf_dobava + artikel_dobava, 2)
         skupna_prodaja = round(dtf_prodaja + artikel_prodaja, 2)
         profit = round(skupna_prodaja - skupna_dobava, 2)
         cena_na_kos = round(skupna_prodaja / skupna_kolicina, 3) if skupna_kolicina else 0
 
+        # Output results
         print("\n=== REZULTAT ===")
         print(f"Podjetje: {podjetje}")
         print(f"Artikel: {artikel_ime.title()}")
@@ -594,6 +504,7 @@ def izracun_dtf():
         print(f"  Profit: {profit} €")
         print(f"  Cena na kos: {cena_na_kos} €")
 
+        # Save to file
         data = [
             f"Artikel: {artikel_ime.title()}",
             f"Količina: {skupna_kolicina}"
@@ -618,8 +529,6 @@ def izracun_dtf():
         ]
         save_to_file(podjetje, data, skupna_kolicina, artikel_ime if artikel_ime != "ne potrebujem ga" else "dtf")
 
-        create_pdf_layout(podjetje, artikel_ime, logotipi)
-
     except Exception as e:
         print(f"❌ Napaka: {e}")
 
@@ -639,3 +548,4 @@ if __name__ == "__main__":
             break
         else:
             print("❌ Napačen vnos. Izberi 1, 2 ali 3.")
+
