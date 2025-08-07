@@ -1,6 +1,7 @@
 import os
 import math
 import re
+import shutil
 
 # === CENIKI ===
 cenik_gravura = [
@@ -307,7 +308,7 @@ def interpoliraj_ceno(metri, cenik):
     return cenik[tocke[-1]]
 
 def save_to_file(podjetje, data, kolicina_or_metri, izbira, mapa="izracuni_dtf"):
-    """Save calculation results to a file."""
+    """Save calculation results to a file. Returns saved file path."""
     os.makedirs(mapa, exist_ok=True)
     sanitized_podjetje = sanitize_filename(podjetje)
     sanitized_izbira = sanitize_filename(izbira)
@@ -320,8 +321,10 @@ def save_to_file(podjetje, data, kolicina_or_metri, izbira, mapa="izracuni_dtf")
             for line in data:
                 f.write(f"{line}\n")
         print(f"\n✅ Shranjeno v: {pot}")
+        return pot
     except OSError as e:
         print(f"❌ Napaka pri shranjevanju datoteke: {e}")
+        return None
 
 def izracun_promocije():
     """Calculate costs for promotional materials."""
@@ -373,7 +376,18 @@ def izracun_promocije():
             f"Profit: {profit} €",
             f"Cena na kos: {cena_na_kos} €"
         ]
-        save_to_file(podjetje, data, kolicina, izbira)
+        save_path = save_to_file(podjetje, data, kolicina, izbira)
+        # Optional: attach PDF offer/spec
+        pdf_pot = input("Če želiš priložiti PDF (npr. ponudbo/brief), vnesi pot do PDF (pusti prazno za preskok): ").strip()
+        if save_path and pdf_pot:
+            try:
+                cilj_mapa = os.path.dirname(save_path)
+                pdf_ime = os.path.basename(pdf_pot)
+                cilj_pdf = os.path.join(cilj_mapa, pdf_ime)
+                shutil.copy2(pdf_pot, cilj_pdf)
+                print(f"✅ PDF priložen: {cilj_pdf}")
+            except Exception as e:
+                print(f"❌ Napaka pri kopiranju PDF: {e}")
 
     except Exception as e:
         print(f"❌ Napaka: {e}")
@@ -387,6 +401,12 @@ def izracun_dtf():
             return
 
         izbira = input("Vpiši ime oblačilnega artikla (npr. backfire, ali 'ne potrebujem ga' za lastne izdelke): ").lower().strip()
+        
+        # Optional: attach PDF offer/spec
+        pdf_pot = input("Če želiš priložiti PDF (npr. ponudbo/brief), vnesi pot do PDF (pusti prazno za preskok): ").strip()
+        if pdf_pot and not pdf_pot.lower().endswith(".pdf"):
+            print("❌ Napačen tip datoteke. Dovoli se le .pdf.")
+            return
         
         # Check if user wants to skip article costs
         if izbira == "ne potrebujem ga":
@@ -527,7 +547,16 @@ def izracun_dtf():
             f"  Profit: {profit} €",
             f"  Cena na kos: {cena_na_kos} €"
         ]
-        save_to_file(podjetje, data, skupna_kolicina, artikel_ime if artikel_ime != "ne potrebujem ga" else "dtf")
+        save_path = save_to_file(podjetje, data, skupna_kolicina, artikel_ime if artikel_ime != "ne potrebujem ga" else "dtf")
+        if save_path and pdf_pot:
+            try:
+                cilj_mapa = os.path.dirname(save_path)
+                pdf_ime = os.path.basename(pdf_pot)
+                cilj_pdf = os.path.join(cilj_mapa, pdf_ime)
+                shutil.copy2(pdf_pot, cilj_pdf)
+                print(f"✅ PDF priložen: {cilj_pdf}")
+            except Exception as e:
+                print(f"❌ Napaka pri kopiranju PDF: {e}")
 
     except Exception as e:
         print(f"❌ Napaka: {e}")
