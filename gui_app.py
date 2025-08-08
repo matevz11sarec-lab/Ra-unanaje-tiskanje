@@ -254,6 +254,7 @@ class DtfFrame(ttk.Frame):
                 item_w_cm = visina
                 item_h_cm = sirina
                 num_rows = rot_vrstic
+                rotated = True
             else:
                 opis = (
                     f"Logotip #{idx}: {kolicina} × {sirina}x{visina} cm → "
@@ -263,6 +264,7 @@ class DtfFrame(ttk.Frame):
                 item_w_cm = sirina
                 item_h_cm = visina
                 num_rows = vrstic
+                rotated = False
 
             # Validate fitting into 44 cm
             if chosen_per_row <= 0:
@@ -286,6 +288,7 @@ class DtfFrame(ttk.Frame):
                     "y_top_cm": current_y_cm,
                     "items": items,
                     "color_idx": (idx - 1) % 8,
+                    "rotated": rotated,
                 })
                 current_y_cm += item_h_cm
                 remaining -= count_in_row
@@ -361,58 +364,45 @@ class DtfFrame(ttk.Frame):
             except Exception as e:
                 messagebox.showwarning("Opozorilo", f"PDF ni bilo mogoče priložiti: {e}")
 
-        # Generate layout image (PNG)
-        if save_path:
+        # Generate print-ready PDF layout if a PDF logotip is provided
+        if save_path and self.pdf_path:
             try:
-                self._generate_layout_image(layout_rows, current_y_cm, save_path)
+                self._generate_layout_pdf(layout_rows, current_y_cm, save_path, self.pdf_path)
             except ImportError:
                 messagebox.showinfo(
                     "Info",
-                    "Za generiranje slike postavitve namesti paket Pillow:\n\n  python3 -m pip install pillow"
+                    "Za PDF postavitev namesti PyMuPDF:\n\n  python3 -m pip install pymupdf"
                 )
             except Exception as e:
-                messagebox.showwarning("Opozorilo", f"Postavitve ni bilo mogoče narisati: {e}")
+                messagebox.showwarning("Opozorilo", f"PDF postavitve ni bilo mogoče ustvariti: {e}")
 
-    def _generate_layout_image(self, layout_rows, total_height_cm: float, save_path: str, scale_px_per_cm: int = 7) -> None:
-        # Lazy import Pillow to avoid hard dependency if user doesn't need images
-        from PIL import Image, ImageDraw
-
-        margin_px = 20
-        width_px = int(44 * scale_px_per_cm) + margin_px * 2
-        height_px = max(1, int(total_height_cm * scale_px_per_cm) + margin_px * 2)
-
-        img = Image.new("RGB", (width_px, height_px), "white")
-        draw = ImageDraw.Draw(img)
-
-        # Draw border and width label
-        draw.rectangle([margin_px, margin_px, width_px - margin_px, height_px - margin_px], outline=(0, 0, 0), width=1)
-        draw.text((margin_px + 4, 2), "Širina role: 44 cm", fill=(0, 0, 0))
-
-        # Simple color palette
-        colors = [
-            (255, 200, 200), (200, 255, 200), (200, 200, 255), (255, 255, 200),
-            (255, 200, 255), (200, 255, 255), (230, 230, 230), (255, 230, 200)
-        ]
-
-        # Draw rows and items
-        for row in layout_rows:
-            y_top_px = margin_px + int(row["y_top_cm"] * scale_px_per_cm)
-            for (x_cm, w_cm, h_cm, label) in row["items"]:
-                x1 = margin_px + int(x_cm * scale_px_per_cm)
-                y1 = y_top_px
-                x2 = x1 + int(w_cm * scale_px_per_cm)
-                y2 = y1 + int(h_cm * scale_px_per_cm)
-                fill = colors[row["color_idx"]]
-                draw.rectangle([x1, y1, x2, y2], fill=fill, outline=(60, 60, 60))
-                # label center
-                tx = x1 + 3
-                ty = y1 + 3
-                draw.text((tx, ty), f"{label}\n{w_cm:.1f}×{h_cm:.1f} cm", fill=(0, 0, 0))
-
+    def _generate_layout_pdf(self, layout_rows, total_height_cm: float, save_path: str, src_pdf_path: str) -> None:
+        import fitz  # PyMuPDF
+        pt_per_cm = 72.0 / 2.54
+        width_pt = 44.0 * pt_per_cm
+        height_pt = max(1.0, total_height_cm * pt_per_cm)
+        out_doc = fitz.open()
+        page = out_doc.new_page(width=width_pt, height=height_pt)
+        src = fitz.open(src_pdf_path)
+        try:
+            src_page_index = 0
+            for row in layout_rows:
+                y_top_pt = row["y_top_cm"] * pt_per_cm
+                rotated = row.get("rotated", False)
+                for (x_cm, w_cm, h_cm, _label) in row["items"]:
+                    x1 = x_cm * pt_per_cm
+                    y1 = y_top_pt
+                    x2 = x1 + w_cm * pt_per_cm
+                    y2 = y1 + h_cm * pt_per_cm
+                    rect = fitz.Rect(x1, y1, x2, y2)
+                    page.show_pdf_page(rect, src, src_page_index, rotate=90 if rotated else 0)
+        finally:
+            src.close()
         base, _ = os.path.splitext(save_path)
-        out_path = base + "_layout.png"
-        img.save(out_path)
-        messagebox.showinfo("Uspeh", f"Slika postavitve ustvarjena: {out_path}")
+        out_path = base + "_layout.pdf"
+        out_doc.save(out_path)
+        out_doc.close()
+        messagebox.showinfo("Uspeh", f"PDF postavitve ustvarjen: {out_path}")
 
 
 def main() -> None:
