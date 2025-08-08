@@ -219,6 +219,10 @@ class DtfFrame(ttk.Frame):
         # Logos
         podrobnosti = []
         skupna_povrsina_cm2 = 0.0
+        # For layout drawing
+        layout_rows = []  # list of dicts: {y_top_cm, items: [(x_cm, w_cm, h_cm, label)], color_idx}
+        current_y_cm = 0.0
+
         for idx, (w_var, h_var, q_var) in enumerate(self.logo_rows, start=1):
             if not (w_var.get().strip() and h_var.get().strip() and q_var.get().strip()):
                 continue
@@ -246,13 +250,45 @@ class DtfFrame(ttk.Frame):
                     f"Logotip #{idx}: {kolicina} × {visina}x{sirina} cm (ROTIRANO) → "
                     f"{rot_log_na_vrstico} na vrstico, {rot_vrstic} vrstic = {rot_visina_total:.2f} cm"
                 )
+                chosen_per_row = rot_log_na_vrstico
+                item_w_cm = visina
+                item_h_cm = sirina
+                num_rows = rot_vrstic
             else:
                 opis = (
                     f"Logotip #{idx}: {kolicina} × {sirina}x{visina} cm → "
                     f"{log_na_vrstico} na vrstico, {vrstic} vrstic = {visina_total:.2f} cm"
                 )
+                chosen_per_row = log_na_vrstico
+                item_w_cm = sirina
+                item_h_cm = visina
+                num_rows = vrstic
+
+            # Validate fitting into 44 cm
+            if chosen_per_row <= 0:
+                messagebox.showerror("Napaka", f"Vrstica #{idx}: širina logotipa ({item_w_cm} cm) presega širino role (44 cm).")
+                return
+
             podrobnosti.append(opis)
-            skupna_povrsina_cm2 += sirina * visina * kolicina
+            povrsina = sirina * visina * kolicina
+            skupna_povrsina_cm2 += povrsina
+
+            # Build row-by-row placement for this logo type
+            remaining = kolicina
+            for r in range(num_rows):
+                count_in_row = chosen_per_row if remaining > chosen_per_row else remaining
+                items = []
+                x_cm = 0.0
+                for _ in range(count_in_row):
+                    items.append((x_cm, item_w_cm, item_h_cm, f"#{idx}"))
+                    x_cm += item_w_cm
+                layout_rows.append({
+                    "y_top_cm": current_y_cm,
+                    "items": items,
+                    "color_idx": (idx - 1) % 8,
+                })
+                current_y_cm += item_h_cm
+                remaining -= count_in_row
 
         if not podrobnosti:
             messagebox.showerror("Napaka", "Dodaj vsaj en veljaven logotip")
@@ -276,7 +312,7 @@ class DtfFrame(ttk.Frame):
         for v in podrobnosti:
             self.output.insert(tk.END, "  " + v + "\n")
         self.output.insert(tk.END, "\nDTF tisk:\n")
-        self.output.insert(tk.END, f"  Referenčna dolžina: {povrsinska_z_rezervo} m\n")
+        self.output.insert(tk.END, f"  Referenčna dolžina (iz površine): {povrsinska_z_rezervo} m\n")
         self.output.insert(tk.END, f"  Dobavna cena: {dtf_dobava} €\n")
         self.output.insert(tk.END, f"  Prodajna cena: {dtf_prodaja} €\n")
         if artikel_ime != "ne potrebujem ga":
@@ -288,6 +324,7 @@ class DtfFrame(ttk.Frame):
         self.output.insert(tk.END, f"  Prodajna cena: {skupna_prodaja} €\n")
         self.output.insert(tk.END, f"  Profit: {profit} €\n")
         self.output.insert(tk.END, f"  Cena na kos: {cena_na_kos} €\n")
+        self.output.insert(tk.END, f"\nOpomba: dejanska višina postavitve po vrsticah: {current_y_cm/100:.2f} m\n")
 
         # Save
         data = [
@@ -295,9 +332,10 @@ class DtfFrame(ttk.Frame):
             f"Količina: {skupna_kolicina}",
             *podrobnosti,
             "DTF tisk:",
-            f"  Referenčna dolžina: {povrsinska_z_rezervo} m",
+            f"  Referenčna dolžina (iz površine): {povrsinska_z_rezervo} m",
             f"  Dobavna cena: {dtf_dobava} €",
             f"  Prodajna cena: {dtf_prodaja} €",
+            f"  Dejanska višina postavitve po vrsticah: {current_y_cm/100:.2f} m",
         ]
         if artikel_ime != "ne potrebujem ga":
             data += [
@@ -322,6 +360,59 @@ class DtfFrame(ttk.Frame):
                 messagebox.showinfo("Uspeh", f"PDF priložen: {cilj_pdf}")
             except Exception as e:
                 messagebox.showwarning("Opozorilo", f"PDF ni bilo mogoče priložiti: {e}")
+
+        # Generate layout image (PNG)
+        if save_path:
+            try:
+                self._generate_layout_image(layout_rows, current_y_cm, save_path)
+            except ImportError:
+                messagebox.showinfo(
+                    "Info",
+                    "Za generiranje slike postavitve namesti paket Pillow:\n\n  python3 -m pip install pillow"
+                )
+            except Exception as e:
+                messagebox.showwarning("Opozorilo", f"Postavitve ni bilo mogoče narisati: {e}")
+
+    def _generate_layout_image(self, layout_rows, total_height_cm: float, save_path: str, scale_px_per_cm: int = 7) -> None:
+        # Lazy import Pillow to avoid hard dependency if user doesn't need images
+        from PIL import Image, ImageDraw
+
+        margin_px = 20
+        width_px = int(44 * scale_px_per_cm) + margin_px * 2
+        height_px = max(1, int(total_height_cm * scale_px_per_cm) + margin_px * 2)
+
+        img = Image.new("RGB", (width_px, height_px), "white")
+        draw = ImageDraw.Draw(img)
+
+        # Draw border and width label
+        draw.rectangle([margin_px, margin_px, width_px - margin_px, height_px - margin_px], outline=(0, 0, 0), width=1)
+        draw.text((margin_px + 4, 2), "Širina role: 44 cm", fill=(0, 0, 0))
+
+        # Simple color palette
+        colors = [
+            (255, 200, 200), (200, 255, 200), (200, 200, 255), (255, 255, 200),
+            (255, 200, 255), (200, 255, 255), (230, 230, 230), (255, 230, 200)
+        ]
+
+        # Draw rows and items
+        for row in layout_rows:
+            y_top_px = margin_px + int(row["y_top_cm"] * scale_px_per_cm)
+            for (x_cm, w_cm, h_cm, label) in row["items"]:
+                x1 = margin_px + int(x_cm * scale_px_per_cm)
+                y1 = y_top_px
+                x2 = x1 + int(w_cm * scale_px_per_cm)
+                y2 = y1 + int(h_cm * scale_px_per_cm)
+                fill = colors[row["color_idx"]]
+                draw.rectangle([x1, y1, x2, y2], fill=fill, outline=(60, 60, 60))
+                # label center
+                tx = x1 + 3
+                ty = y1 + 3
+                draw.text((tx, ty), f"{label}\n{w_cm:.1f}×{h_cm:.1f} cm", fill=(0, 0, 0))
+
+        base, _ = os.path.splitext(save_path)
+        out_path = base + "_layout.png"
+        img.save(out_path)
+        messagebox.showinfo("Uspeh", f"Slika postavitve ustvarjena: {out_path}")
 
 
 def main() -> None:
