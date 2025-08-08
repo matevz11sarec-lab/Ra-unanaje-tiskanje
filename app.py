@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from core.enrich import run_enrichment
+from utils.io import read_input_csv
 
 st.set_page_config(page_title='Phone Enricher (bizi.si + companywall.si)', layout='centered')
 st.title('Phone Enricher (bizi.si + companywall.si)')
@@ -35,7 +36,8 @@ if run_btn:
         st.error('Min. zamik ne sme biti večji od maks. zamika.')
     else:
         try:
-            df_input = pd.read_csv(uploaded_csv, dtype=str, keep_default_na=False, encoding='utf-8')
+            # Use robust CSV reader with delimiter/encoding detection
+            df_input = read_input_csv(uploaded_csv)
         except Exception as exc:  # noqa: BLE001
             st.error(f'Napaka pri branju CSV: {exc}')
         else:

@@ -1,21 +1,82 @@
 import os
-from typing import Tuple
+from typing import Tuple, Union, IO
 import pandas as pd
 
 REQUIRED_COLUMNS = ['name']
 OPTIONAL_COLUMNS = ['bizi_url']
 
 
-def read_input_csv(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path, dtype=str, keep_default_na=False, encoding='utf-8')
-    for col in REQUIRED_COLUMNS:
-        if col not in df.columns:
-            raise ValueError(f"Missing required column '{col}' in input CSV")
+def _postprocess_df(df: pd.DataFrame) -> pd.DataFrame:
+    # Normalize column names (strip whitespace)
+    df.columns = [str(c).strip() for c in df.columns]
     # Ensure optional columns exist for consistent processing
     for col in OPTIONAL_COLUMNS:
         if col not in df.columns:
             df[col] = ''
     return df
+
+
+def read_input_csv(source: Union[str, IO[bytes], IO[str]]) -> pd.DataFrame:
+    """Read input CSV with robust delimiter and encoding handling.
+
+    - Tries UTF-8 and UTF-8 with BOM
+    - Auto-detects delimiter (comma/semicolon) using engine='python'
+    - Falls back to explicit semicolon, then comma
+    """
+    last_error = None
+    for encoding in ('utf-8', 'utf-8-sig'):
+        # 1) Autodetect delimiter
+        try:
+            df = pd.read_csv(
+                source,
+                dtype=str,
+                keep_default_na=False,
+                encoding=encoding,
+                sep=None,
+                engine='python',
+            )
+            df = _postprocess_df(df)
+            for col in REQUIRED_COLUMNS:
+                if col not in df.columns:
+                    raise ValueError(f"Missing required column '{col}' in input CSV")
+            return df
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+        # 2) Explicit semicolon
+        try:
+            df = pd.read_csv(
+                source,
+                dtype=str,
+                keep_default_na=False,
+                encoding=encoding,
+                sep=';',
+                engine='python',
+            )
+            df = _postprocess_df(df)
+            for col in REQUIRED_COLUMNS:
+                if col not in df.columns:
+                    raise ValueError(f"Missing required column '{col}' in input CSV")
+            return df
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+        # 3) Explicit comma
+        try:
+            df = pd.read_csv(
+                source,
+                dtype=str,
+                keep_default_na=False,
+                encoding=encoding,
+                sep=',',
+                engine='python',
+            )
+            df = _postprocess_df(df)
+            for col in REQUIRED_COLUMNS:
+                if col not in df.columns:
+                    raise ValueError(f"Missing required column '{col}' in input CSV")
+            return df
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+    raise ValueError(f"Failed to read input CSV. Last error: {last_error}")
 
 
 def write_outputs(df_all: pd.DataFrame, out_main_path: str) -> Tuple[str, str]:
