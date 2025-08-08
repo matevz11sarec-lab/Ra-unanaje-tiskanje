@@ -3,21 +3,15 @@ import math
 import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import importlib.util
+import calc_core as core
 
-# Load the existing module from a file path with a space in its name
-MODULE_PATH = "/workspace/testiranje slik.py"
-spec = importlib.util.spec_from_file_location("calc_mod", MODULE_PATH)
-calc_mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(calc_mod)
-
-# Pull references from the loaded module
-promocijski_material = getattr(calc_mod, "promocijski_material")
-cenik_majice = getattr(calc_mod, "cenik_majice")
-cenik_dtf = getattr(calc_mod, "cenik_dtf")
-poisci_razpon = getattr(calc_mod, "poisci_razpon")
-interpoliraj_ceno = getattr(calc_mod, "interpoliraj_ceno")
-save_to_file = getattr(calc_mod, "save_to_file")
+# Pull references from the core module
+promocijski_material = core.promocijski_material
+cenik_majice = core.cenik_majice
+cenik_dtf = core.cenik_dtf
+poisci_razpon = core.poisci_razpon
+interpoliraj_ceno = core.interpoliraj_ceno
+save_to_file = core.save_to_file
 
 
 class App(tk.Tk):
