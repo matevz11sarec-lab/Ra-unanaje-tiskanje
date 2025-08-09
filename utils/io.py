@@ -1,4 +1,5 @@
 import os
+import io
 from typing import Tuple, Union, IO
 import pandas as pd
 
@@ -16,19 +17,49 @@ def _postprocess_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _get_buffers_from_source(source: Union[str, IO[bytes], IO[str]]):
+    """Return a callable that yields a fresh buffer for each parsing attempt.
+
+    If source is a path, returns the path string.
+    If source is file-like, reads into memory and returns a factory creating new BytesIO/StringIO per attempt.
+    """
+    if isinstance(source, (str, os.PathLike)):
+        return str(source)
+
+    # File-like: read once
+    try:
+        data = source.read()
+    except Exception:
+        # As a last resort, try to open as path
+        return source
+
+    # If bytes, use BytesIO; if str, use StringIO
+    if isinstance(data, bytes):
+        def buffer_factory():
+            return io.BytesIO(data)
+    else:
+        def buffer_factory():
+            return io.StringIO(data)
+    return buffer_factory
+
+
 def read_input_csv(source: Union[str, IO[bytes], IO[str]]) -> pd.DataFrame:
     """Read input CSV with robust delimiter and encoding handling.
 
     - Tries UTF-8 and UTF-8 with BOM
     - Auto-detects delimiter (comma/semicolon) using engine='python'
     - Falls back to explicit semicolon, then comma
+    - Handles file-like inputs by buffering and rewinding
     """
+    src = _get_buffers_from_source(source)
+
     last_error = None
     for encoding in ('utf-8', 'utf-8-sig'):
         # 1) Autodetect delimiter
         try:
+            buf = src() if callable(src) else src
             df = pd.read_csv(
-                source,
+                buf,
                 dtype=str,
                 keep_default_na=False,
                 encoding=encoding,
@@ -44,8 +75,9 @@ def read_input_csv(source: Union[str, IO[bytes], IO[str]]) -> pd.DataFrame:
             last_error = exc
         # 2) Explicit semicolon
         try:
+            buf = src() if callable(src) else src
             df = pd.read_csv(
-                source,
+                buf,
                 dtype=str,
                 keep_default_na=False,
                 encoding=encoding,
@@ -61,8 +93,9 @@ def read_input_csv(source: Union[str, IO[bytes], IO[str]]) -> pd.DataFrame:
             last_error = exc
         # 3) Explicit comma
         try:
+            buf = src() if callable(src) else src
             df = pd.read_csv(
-                source,
+                buf,
                 dtype=str,
                 keep_default_na=False,
                 encoding=encoding,
