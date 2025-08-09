@@ -9,12 +9,12 @@ from core.enrich import run_enrichment
 from core.agency import run_agency_enrichment
 from utils.io import read_input_csv
 
-st.set_page_config(page_title='Phone Enricher (bizi.si + companywall.si)', layout='centered')
+st.set_page_config(page_title='Enricher (bizi.si + companywall.si)', layout='centered')
 st.title('Enricher')
 
 mode_tabs = st.tabs(["Tiskarska podjetja", "Podjetja za agencijo"])
 
-# Tab 1: Tiskarska podjetja (existing phone enrichment)
+# Tab 1: Tiskarska podjetja (phone enrichment)
 with mode_tabs[0]:
     st.subheader('Tiskarska podjetja: iskanje telefonskih številk')
     st.markdown('Naložite CSV datoteko z obveznim stolpcem `name` in opcijskim `bizi_url`.')
@@ -29,7 +29,6 @@ with mode_tabs[0]:
         max_delay = st.number_input('Maks. zamik (sekunde)', min_value=0.5, max_value=15.0, value=3.5, step=0.1, key='max1')
 
     headful = st.checkbox('Prikaži brskalnik (headful)', value=False, key='head1')
-
     run_btn = st.button('Zaženi obogatitev', type='primary', use_container_width=True, key='run1')
 
     progress_placeholder = st.empty()
@@ -95,7 +94,7 @@ with mode_tabs[0]:
 # Tab 2: Podjetja za agencijo (website-first)
 with mode_tabs[1]:
     st.subheader('Podjetja za agencijo: podjetja brez spletne strani + telefon')
-    st.markdown('Naložite CSV z `name` (obvezno) in `bizi_url` (opcijsko). Najprej preveri, če podjetje že ima spletno stran; če je nima, poišče telefonsko številko.')
+    st.markdown('Najprej preveri, če podjetje že ima spletno stran; če je nima, poišče telefonsko številko.')
 
     uploaded_csv2 = st.file_uploader('Vhodni CSV (UTF-8)', type=['csv'], key='csv2')
     auth_state_file2 = st.file_uploader('auth_state.json (neobvezno)', type=['json'], key='auth2')
@@ -107,7 +106,7 @@ with mode_tabs[1]:
         max_delay2 = st.number_input('Maks. zamik (sekunde)', min_value=0.5, max_value=15.0, value=3.5, step=0.1, key='max2')
 
     headful2 = st.checkbox('Prikaži brskalnik (headful)', value=False, key='head2')
-
+    always_phone = st.checkbox('Vedno poišči telefonsko številko (tudi če obstaja spletna stran)', value=False, key='always_phone')
     run_btn2 = st.button('Zaženi preverjanje spletne strani + telefon', type='primary', use_container_width=True, key='run2')
 
     progress_placeholder2 = st.empty()
@@ -148,6 +147,7 @@ with mode_tabs[1]:
                             min_delay=float(min_delay2),
                             max_delay=float(max_delay2),
                             progress_cb=progress_cb2,
+                            always_search_phone=always_phone,
                         )
                     except Exception as exc:  # noqa: BLE001
                         st.error(f'Napaka: {exc}')
@@ -155,7 +155,7 @@ with mode_tabs[1]:
                         success_pct2 = (found_count2 / total2 * 100.0) if total2 else 0.0
                         st.success(f'Končano. Najdenih telefonov (pri podjetjih brez spletne strani): {found_count2}/{total2} ({success_pct2:.1f}%).')
 
-                        # Downloads: full, only without website, and phones found for without-website
+                        # Downloads: full, only without website, and minimal phones for no-website
                         csv_all2 = df_res2.to_csv(index=False).encode('utf-8')
                         df_no_site = df_res2[df_res2['website_status'] == 'nima spletne strani'].copy()
                         csv_no_site = df_no_site.to_csv(index=False).encode('utf-8')

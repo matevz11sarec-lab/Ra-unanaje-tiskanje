@@ -7,7 +7,11 @@ SOCIAL_DOMAINS = {
     'youtube.com', 'tiktok.com'
 }
 
-EXCLUDE_HOSTS = {'bizi.si', 'www.bizi.si', 'companywall.si', 'www.companywall.si'}
+EXCLUDE_HOSTS = {
+    'bizi.si', 'www.bizi.si',
+    'companywall.si', 'www.companywall.si',
+    'google.com', 'www.google.com', 'maps.google.com', 'goo.gl',
+}
 
 
 def _is_external_company_site(url: str) -> bool:
@@ -26,23 +30,22 @@ def _is_external_company_site(url: str) -> bool:
     for sd in SOCIAL_DOMAINS:
         if host.endswith(sd):
             return False
-    return True
+    return parsed.scheme in ('http', 'https')
 
 
 def find_website_on_page(page: Page) -> Optional[str]:
     """Return the first external website URL likely belonging to the company.
 
     Scans all anchor tags and picks the first http(s) URL that is not an internal host,
-    not mailto/tel/javascript, and not a common social domain.
+    not mailto/tel/javascript, and not a common social/map domain.
     """
     try:
         links = page.locator('a[href]')
         count = links.count()
-        for i in range(min(count, 100)):
+        for i in range(min(count, 150)):
             href = links.nth(i).get_attribute('href') or ''
             if _is_external_company_site(href):
                 return href
-        # Fallback: look for raw text patterns like www.domain.tld in page text is omitted for now
     except Exception:
         pass
     return None

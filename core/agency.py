@@ -79,13 +79,12 @@ def run_agency_enrichment(
     min_delay: float,
     max_delay: float,
     progress_cb: ProgressCallback = None,
+    always_search_phone: bool = False,
 ) -> Tuple[pd.DataFrame, int, int]:
-    """For each company, check if it has a website (via bizi/companywall).
+    """For each company, check website first, optionally still search phone.
 
-    If website exists: set website and website_status='ima spletno stran'.
-    If not: find phone number as fallback; if none, set source='ni telefonske številke'.
-
-    Returns (df_with_results, found_phones_count, total).
+    If website exists: set website_status='ima spletno stran'.
+    If not or always_search_phone=True: search phone via bizi/companywall.
     """
     if 'name' not in df.columns:
         raise ValueError("Input DataFrame is missing required column 'name'")
@@ -113,128 +112,120 @@ def run_agency_enrichment(
             bizi_url = (row.get('bizi_url') or '').strip()
 
             try:
+                has_website = False
+
                 # 1) If bizi_url provided, open and look for website
-                opened = False
                 if bizi_url:
                     try:
                         navigate_with_retries(page, bizi_url)
-                        opened = True
                         random_delay(min_delay, max_delay)
                         site = find_website_on_page(page)
                         if site:
                             df.at[idx, 'website'] = site
                             df.at[idx, 'website_status'] = 'ima spletno stran'
+                            has_website = True
                             if progress_cb:
                                 progress_cb(idx + 1, total, name, 'ima spletno stran')
-                            # Skip phone lookup when website exists
-                            continue
                     except Exception:
-                        opened = False
+                        pass
 
-                # 2) Search on bizi.si
-                try:
-                    search_url = BIZI_SEARCH_URL.format(query=urllib.parse.quote(name))
-                    navigate_with_retries(page, search_url)
-                    random_delay(min_delay, max_delay)
-                    if _open_bizi_profile(page, name):
+                # 2) If no website yet, try bizi search
+                if not has_website:
+                    try:
+                        search_url = BIZI_SEARCH_URL.format(query=urllib.parse.quote(name))
+                        navigate_with_retries(page, search_url)
                         random_delay(min_delay, max_delay)
-                        site = find_website_on_page(page)
-                        if site:
-                            df.at[idx, 'website'] = site
-                            df.at[idx, 'website_status'] = 'ima spletno stran'
-                            if progress_cb:
-                                progress_cb(idx + 1, total, name, 'ima spletno stran')
-                            continue
-                except Exception:
-                    pass
+                        if _open_bizi_profile(page, name):
+                            random_delay(min_delay, max_delay)
+                            site = find_website_on_page(page)
+                            if site:
+                                df.at[idx, 'website'] = site
+                                df.at[idx, 'website_status'] = 'ima spletno stran'
+                                has_website = True
+                                if progress_cb:
+                                    progress_cb(idx + 1, total, name, 'ima spletno stran')
+                    except Exception:
+                        pass
 
-                # 3) Search on companywall.si
-                try:
-                    search_url = CW_SEARCH_URL.format(query=urllib.parse.quote(name))
-                    navigate_with_retries(page, search_url)
-                    random_delay(min_delay, max_delay)
-                    if _open_companywall_profile(page, name):
+                # 3) If still no website, try companywall search
+                if not has_website:
+                    try:
+                        search_url = CW_SEARCH_URL.format(query=urllib.parse.quote(name))
+                        navigate_with_retries(page, search_url)
                         random_delay(min_delay, max_delay)
-                        site = find_website_on_page(page)
-                        if site:
-                            df.at[idx, 'website'] = site
-                            df.at[idx, 'website_status'] = 'ima spletno stran'
-                            if progress_cb:
-                                progress_cb(idx + 1, total, name, 'ima spletno stran')
-                            continue
-                except Exception:
-                    pass
+                        if _open_companywall_profile(page, name):
+                            random_delay(min_delay, max_delay)
+                            site = find_website_on_page(page)
+                            if site:
+                                df.at[idx, 'website'] = site
+                                df.at[idx, 'website_status'] = 'ima spletno stran'
+                                has_website = True
+                                if progress_cb:
+                                    progress_cb(idx + 1, total, name, 'ima spletno stran')
+                    except Exception:
+                        pass
 
-                # 4) No website found -> phone lookup using existing logic via profile text
-                # Reuse basic regex extraction from phones util via page text
-                # Try bizi again for phone pattern
+                # 4) Phone search when needed
                 from utils.phones import find_phone_on_page
 
-                phone = ''
-                last_src = ''
-
-                # Try current page first if any
-                phone = find_phone_on_page(page) or ''
-                if phone:
-                    df.at[idx, 'phone'] = phone
+                if not has_website:
                     df.at[idx, 'website_status'] = 'nima spletne strani'
-                    df.at[idx, 'source'] = 'bizi.si' if 'bizi.si' in (page.url or '') else 'companywall.si'
-                    found_phones += 1
-                    if progress_cb:
-                        progress_cb(idx + 1, total, name, f"nima spletne strani, FOUND: {phone}")
-                    random_delay(min_delay, max_delay)
-                    continue
 
-                # Go to bizi search/result for phone
-                try:
-                    search_url = BIZI_SEARCH_URL.format(query=urllib.parse.quote(name))
-                    navigate_with_retries(page, search_url)
-                    random_delay(min_delay, max_delay)
-                    if _open_bizi_profile(page, name):
+                if always_search_phone or not has_website:
+                    phone = find_phone_on_page(page) or ''
+                    if phone:
+                        df.at[idx, 'phone'] = phone
+                        # If we are on bizi/companywall, choose accordingly
+                        df.at[idx, 'source'] = 'bizi.si' if 'bizi.si' in (page.url or '') else 'companywall.si'
+                        found_phones += 1
+                        if progress_cb:
+                            progress_cb(idx + 1, total, name, f"FOUND: {phone}")
                         random_delay(min_delay, max_delay)
-                        phone = find_phone_on_page(page) or ''
-                        if phone:
-                            df.at[idx, 'phone'] = phone
-                            df.at[idx, 'website_status'] = 'nima spletne strani'
-                            df.at[idx, 'source'] = 'bizi.si'
-                            found_phones += 1
-                            if progress_cb:
-                                progress_cb(idx + 1, total, name, f"nima spletne strani, FOUND: {phone}")
-                            random_delay(min_delay, max_delay)
-                            continue
-                        else:
-                            last_src = 'bizi.si (no phone)'
-                except Exception:
-                    last_src = 'bizi.si (error)'
+                        continue
 
-                # Companywall for phone
-                try:
-                    search_url = CW_SEARCH_URL.format(query=urllib.parse.quote(name))
-                    navigate_with_retries(page, search_url)
-                    random_delay(min_delay, max_delay)
-                    if _open_companywall_profile(page, name):
+                    # Bizi for phone
+                    try:
+                        search_url = BIZI_SEARCH_URL.format(query=urllib.parse.quote(name))
+                        navigate_with_retries(page, search_url)
                         random_delay(min_delay, max_delay)
-                        phone = find_phone_on_page(page) or ''
-                        if phone:
-                            df.at[idx, 'phone'] = phone
-                            df.at[idx, 'website_status'] = 'nima spletne strani'
-                            df.at[idx, 'source'] = 'companywall.si'
-                            found_phones += 1
-                            if progress_cb:
-                                progress_cb(idx + 1, total, name, f"nima spletne strani, FOUND: {phone}")
+                        if _open_bizi_profile(page, name):
                             random_delay(min_delay, max_delay)
-                            continue
-                        else:
-                            last_src = 'companywall.si (no phone)'
-                except Exception:
-                    last_src = 'companywall.si (error)'
+                            phone = find_phone_on_page(page) or ''
+                            if phone:
+                                df.at[idx, 'phone'] = phone
+                                df.at[idx, 'source'] = 'bizi.si'
+                                found_phones += 1
+                                if progress_cb:
+                                    progress_cb(idx + 1, total, name, f"FOUND: {phone}")
+                                random_delay(min_delay, max_delay)
+                                continue
+                    except Exception:
+                        pass
 
-                # Still no phone
-                df.at[idx, 'website_status'] = 'nima spletne strani'
-                df.at[idx, 'phone'] = ''
-                df.at[idx, 'source'] = 'ni telefonske številke'
-                if progress_cb:
-                    progress_cb(idx + 1, total, name, 'nima spletne strani, ni telefonske številke')
+                    # Companywall for phone
+                    try:
+                        search_url = CW_SEARCH_URL.format(query=urllib.parse.quote(name))
+                        navigate_with_retries(page, search_url)
+                        random_delay(min_delay, max_delay)
+                        if _open_companywall_profile(page, name):
+                            random_delay(min_delay, max_delay)
+                            phone = find_phone_on_page(page) or ''
+                            if phone:
+                                df.at[idx, 'phone'] = phone
+                                df.at[idx, 'source'] = 'companywall.si'
+                                found_phones += 1
+                                if progress_cb:
+                                    progress_cb(idx + 1, total, name, f"FOUND: {phone}")
+                                random_delay(min_delay, max_delay)
+                                continue
+                    except Exception:
+                        pass
+
+                    # No phone
+                    if not has_website:
+                        df.at[idx, 'source'] = 'ni telefonske številke'
+                        if progress_cb:
+                            progress_cb(idx + 1, total, name, 'ni telefonske številke')
 
                 random_delay(min_delay, max_delay)
 
