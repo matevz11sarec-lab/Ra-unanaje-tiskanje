@@ -79,6 +79,13 @@ if run_btn:
                     csv_all = df_res.to_csv(index=False).encode('utf-8')
                     df_only = df_res[df_res['phone'].astype(str).str.strip() != ''].copy()
                     csv_only = df_only.to_csv(index=False).encode('utf-8')
+                    # Minimal file: name, phone, source
+                    try:
+                        df_min = df_only[['name', 'phone', 'source']].copy()
+                        csv_min = df_min.to_csv(index=False).encode('utf-8')
+                    except Exception:
+                        df_min = pd.DataFrame(columns=['name', 'phone', 'source'])
+                        csv_min = df_min.to_csv(index=False).encode('utf-8')
 
                     st.download_button(
                         'Prenesi: output_with_phones.csv',
@@ -91,6 +98,13 @@ if run_btn:
                         'Prenesi: output_with_phones_only.csv',
                         data=csv_only,
                         file_name='output_with_phones_only.csv',
+                        mime='text/csv',
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        'Prenesi: output_phones_found.csv (name, phone, source)',
+                        data=csv_min,
+                        file_name='output_phones_found.csv',
                         mime='text/csv',
                         use_container_width=True,
                     )
