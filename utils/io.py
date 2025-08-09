@@ -133,4 +133,13 @@ def write_outputs(df_all: pd.DataFrame, out_main_path: str) -> Tuple[str, str]:
     df_phones_only = df_all[df_all['phone'].astype(str).str.strip() != ''].copy()
     df_phones_only.to_csv(phones_only_path, index=False, encoding='utf-8')
 
+    # Also write a minimal phones-only CSV with just name, phone, source
+    try:
+        df_min = df_phones_only[['name', 'phone', 'source']].copy()
+        minimal_path = f"{base}_phones_found{ext or '.csv'}"
+        df_min.to_csv(minimal_path, index=False, encoding='utf-8')
+    except Exception:
+        # If columns missing, skip minimal export silently
+        pass
+
     return out_main_path, phones_only_path
